@@ -39,12 +39,12 @@ class PostgreSQL(unittest.TestCase):
     self.db.close()
     os.system('dropdb peeweedbevolve_test')
 
-  def evolve_and_check_noop(self):
-    self.db.evolve(interactive=INTERACTIVE)
-    self.check_noop()
+  def evolve_and_check_noop(self, schema=None):
+    self.db.evolve(interactive=INTERACTIVE, schema=schema)
+    self.check_noop(schema=schema)
 
-  def check_noop(self):
-    self.assertEqual(peeweedbevolve.calc_changes(self.db), [])
+  def check_noop(self, schema=None):
+    self.assertEqual(peeweedbevolve.calc_changes(self.db, schema=schema), [])
 
   def test_create_table(self):
     class SomeModel(pw.Model):
@@ -753,6 +753,26 @@ class PostgreSQL(unittest.TestCase):
     self.evolve_and_check_noop()
     self.assertEqual(SomeModel.select().first().another_field, None)
 
+  def test_composite_key_no_change(self):
+    class SomeModel(pw.Model):
+      x = pw.IntegerField()
+      y = pw.IntegerField()
+      class Meta:
+        primary_key = pw.CompositeKey('x', 'y')
+        database = self.db
+    self.evolve_and_check_noop()
+
+  def test_create_table_other_schema(self):
+    self.db.execute_sql('create schema other_schema;')
+    class SomeModel(pw.Model):
+      some_field = pw.CharField(null=True)
+      class Meta:
+        database = self.db
+        schema = 'other_schema'
+    self.evolve_and_check_noop(schema='other_schema')
+    SomeModel.create(some_field='woot')
+    self.assertEqual(SomeModel.select().first().some_field, 'woot')
+
 
 
 
@@ -794,6 +814,24 @@ class MySQL(PostgreSQL):
   def test_add_fk_column(self):
     pass
 
+  def test_create_table_other_schema(self):
+    pass
+
+
+
+from playhouse.pool import PooledPostgresqlExtDatabase
+class PooledPostgreSQL(PostgreSQL):
+
+  def setUp(self):
+    os.system("createdb peeweedbevolve_test && psql peeweedbevolve_test -c 'create extension IF NOT EXISTS hstore;' > /dev/null 2> /dev/null")
+    self.db = PooledPostgresqlExtDatabase('peeweedbevolve_test')
+    self.db.connect()
+    peeweedbevolve.clear()
+
+  def tearDown(self):
+    self.db.manual_close()
+    os.system('dropdb peeweedbevolve_test')
+    
 
 if __name__ == "__main__":
    unittest.main(failfast=False)
